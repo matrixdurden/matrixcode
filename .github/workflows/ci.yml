@@ -5,13 +5,36 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  format-benchmark:
+    if: github.event_name == 'pull_request' && github.head_ref == 'phase/performance-baseline'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: rustfmt --edition 2024 tools/bench_linux.rs
+      - name: Commit formatter output
+        shell: bash
+        run: |
+          if git diff --quiet -- tools/bench_linux.rs; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/bench_linux.rs
+          git commit -m "format benchmark harness"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
   check:
     strategy:
       fail-fast: false
