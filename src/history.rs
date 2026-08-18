@@ -209,7 +209,10 @@ impl HistoryStore {
         let pending = PendingOperation {
             kind: PendingKind::Commit,
             change_set: change_set.clone(),
-            target: HistoryState { cursor: id, tip: id },
+            target: HistoryState {
+                cursor: id,
+                tip: id,
+            },
         };
         self.execute_pending(&pending)?;
         Ok(change_set)

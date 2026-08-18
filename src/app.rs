@@ -4,7 +4,8 @@ use crate::command::Command;
 use crate::history::{HistoryError, HistoryStore};
 use crate::session::{MessageRole, SessionMetadata, SessionStore};
 
-const HELP: &str = "/new  /sessions  /account  /provider  /model  /undo  /redo  /clear  /help  /quit";
+const HELP: &str =
+    "/new  /sessions  /account  /provider  /model  /undo  /redo  /clear  /help  /quit";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
@@ -44,7 +45,10 @@ impl InputBuffer {
     }
 
     pub fn backspace(&mut self) {
-        let Some(previous) = self.text[..self.cursor].char_indices().next_back().map(|(i, _)| i)
+        let Some(previous) = self.text[..self.cursor]
+            .char_indices()
+            .next_back()
+            .map(|(i, _)| i)
         else {
             return;
         };
@@ -234,7 +238,11 @@ impl App {
                     output.push_str(&format!(
                         "{} corrupt session metadata entr{} skipped",
                         list.skipped_corrupt,
-                        if list.skipped_corrupt == 1 { "y" } else { "ies" }
+                        if list.skipped_corrupt == 1 {
+                            "y"
+                        } else {
+                            "ies"
+                        }
                     ));
                 }
                 self.push_system(output.trim_end());
@@ -294,7 +302,9 @@ impl App {
         match result {
             Ok(change_set) => {
                 if let Err(error) = self.sync_history_cursor() {
-                    self.push_system(&format!("Undo succeeded but metadata update failed: {error}"));
+                    self.push_system(&format!(
+                        "Undo succeeded but metadata update failed: {error}"
+                    ));
                     return;
                 }
                 self.push_system(&format!("Undid turn {}.", change_set.id));
@@ -313,7 +323,9 @@ impl App {
         match result {
             Ok(change_set) => {
                 if let Err(error) = self.sync_history_cursor() {
-                    self.push_system(&format!("Redo succeeded but metadata update failed: {error}"));
+                    self.push_system(&format!(
+                        "Redo succeeded but metadata update failed: {error}"
+                    ));
                     return;
                 }
                 self.push_system(&format!("Redid turn {}.", change_set.id));
@@ -332,7 +344,10 @@ impl App {
             .current_session
             .as_ref()
             .ok_or_else(|| "No active session.".to_owned())?;
-        let store = self.session_store.as_ref().expect("session store initialized");
+        let store = self
+            .session_store
+            .as_ref()
+            .expect("session store initialized");
         let root = store
             .history_root(&metadata.id)
             .map_err(|error| error.to_string())?;

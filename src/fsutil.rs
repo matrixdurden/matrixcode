@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -46,7 +46,10 @@ pub fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = parent(path)?;
     fs::create_dir_all(parent)?;
     let temp = temp_path(path);
-    let mut file = OpenOptions::new().write(true).create_new(true).open(&temp)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)?;
 
     if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
         let _ = fs::remove_file(&temp);
@@ -71,7 +74,10 @@ where
     let temp = temp_path(path);
     let backup = backup_path(path);
 
-    let mut file = OpenOptions::new().write(true).create_new(true).open(&temp)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)?;
     if let Err(error) = write(&mut file).and_then(|()| file.sync_all()) {
         let _ = fs::remove_file(&temp);
         return Err(error);
