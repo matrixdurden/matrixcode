@@ -156,7 +156,7 @@ fn undo_restores_deleted_file() {
 #[test]
 fn rejects_parent_paths_and_symlinks() {
     let temp = TestDir::new();
-    let (store, workspace) = temp.store();
+    let (store, _workspace) = temp.store();
     assert!(matches!(
         store.record_and_apply(vec![FileMutation::write("../escape", b"x".to_vec())]),
         Err(HistoryError::InvalidPath(_))
@@ -168,7 +168,7 @@ fn rejects_parent_paths_and_symlinks() {
 
         let outside = temp.0.join("outside");
         fs::create_dir_all(&outside).expect("outside");
-        symlink(&outside, workspace.join("link")).expect("symlink");
+        symlink(&outside, _workspace.join("link")).expect("symlink");
         assert!(matches!(
             store.record_and_apply(vec![FileMutation::write("link/file", b"x".to_vec())]),
             Err(HistoryError::InvalidPath(_))
