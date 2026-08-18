@@ -118,12 +118,18 @@ fn render_messages(frame: &mut Frame<'_>, area: Rect, app: &App) {
             MessageRole::Assistant => "MatrixCode",
             MessageRole::System => "MatrixCode",
         };
-        lines.push(Line::styled(label, Style::default().add_modifier(Modifier::BOLD)));
+        lines.push(Line::styled(
+            label,
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
         lines.extend(message.text.lines().map(Line::from));
         lines.push(Line::default());
     }
 
-    let max_scroll = lines.len().saturating_sub(area.height as usize).min(u16::MAX as usize) as u16;
+    let max_scroll = lines
+        .len()
+        .saturating_sub(area.height as usize)
+        .min(u16::MAX as usize) as u16;
     let offset = max_scroll.saturating_sub(app.scroll.min(max_scroll));
     let paragraph = Paragraph::new(Text::from(lines))
         .wrap(Wrap { trim: false })
