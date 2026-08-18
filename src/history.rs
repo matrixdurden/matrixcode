@@ -404,9 +404,17 @@ impl HistoryStore {
 
         let id = new_blob_id();
         let path = self.blob_path(&id);
-        fs::copy(target, &path)?;
-        let file = fs::OpenOptions::new().read(true).open(&path)?;
-        file.sync_all()?;
+        let mut source = fs::File::open(target)?;
+        let mut blob = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+        let copy_result = io::copy(&mut source, &mut blob).and_then(|_| blob.sync_all());
+        drop(blob);
+        if let Err(error) = copy_result {
+            let _ = fs::remove_file(&path);
+            return Err(error.into());
+        }
         Ok(Snapshot::Blob {
             id,
             len: metadata.len(),
