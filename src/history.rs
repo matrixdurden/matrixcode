@@ -348,10 +348,8 @@ impl HistoryStore {
         atomic_write_json_durable(&self.state_path(), &pending.target)?;
         remove_if_exists(&self.pending_path())?;
         if pending.kind == PendingKind::Commit {
-            if let Some(replaced) = replaced {
-                if replaced != pending.change_set {
-                    self.cleanup_change_set_blobs(&replaced);
-                }
+            if let Some(replaced) = replaced.filter(|replaced| replaced != &pending.change_set) {
+                self.cleanup_change_set_blobs(&replaced);
             }
             self.prune_after(pending.target.tip)?;
         }
