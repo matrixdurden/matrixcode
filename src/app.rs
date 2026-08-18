@@ -1,17 +1,13 @@
+use std::env;
+
 use crate::command::Command;
+use crate::session::{MessageRole, SessionMetadata, SessionStore};
 
 const HELP: &str = "/new  /sessions  /account  /provider  /model  /undo  /redo  /clear  /help  /quit";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Role {
-    User,
-    Assistant,
-    System,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
-    pub role: Role,
+    pub role: MessageRole,
     pub text: String,
 }
 
@@ -118,6 +114,8 @@ pub struct App {
     pub scroll: u16,
     pub status: String,
     pub should_quit: bool,
+    session_store: Option<SessionStore>,
+    current_session: Option<SessionMetadata>,
 }
 
 impl Default for App {
@@ -128,6 +126,8 @@ impl Default for App {
             scroll: 0,
             status: "main · provider not selected · session -".to_owned(),
             should_quit: false,
+            session_store: None,
+            current_session: None,
         }
     }
 }
@@ -146,12 +146,15 @@ impl App {
             return;
         }
 
+        if let Err(error) = self.persist_message(MessageRole::User, &input) {
+            self.push_system(&format!("Session persistence failed: {error}"));
+        }
         self.messages.push(Message {
-            role: Role::User,
+            role: MessageRole::User,
             text: input,
         });
         self.messages.push(Message {
-            role: Role::System,
+            role: MessageRole::Assistant,
             text: "Provider integration is not connected yet.".to_owned(),
         });
     }
@@ -161,8 +164,8 @@ impl App {
             Ok(Command::Quit) => self.should_quit = true,
             Ok(Command::Clear) => self.messages.clear(),
             Ok(Command::Help) => self.push_system(HELP),
-            Ok(Command::New) => self.push_system("Session creation arrives in Phase 3."),
-            Ok(Command::Sessions) => self.push_system("Session picker arrives in Phase 3."),
+            Ok(Command::New) => self.new_session(),
+            Ok(Command::Sessions) => self.list_sessions(),
             Ok(Command::Undo) | Ok(Command::Redo) => {
                 self.push_system("Transactional history arrives in Phase 4.")
             }
@@ -173,9 +176,114 @@ impl App {
         }
     }
 
+    fn new_session(&mut self) {
+        if let Err(error) = self.ensure_store() {
+            self.push_system(&format!("Cannot open session store: {error}"));
+            return;
+        }
+        let workspace = match env::current_dir() {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                self.push_system(&format!("Cannot resolve workspace: {error}"));
+                return;
+            }
+        };
+        let result = self
+            .session_store
+            .as_ref()
+            .expect("session store initialized")
+            .create(workspace);
+        match result {
+            Ok(metadata) => {
+                self.messages.clear();
+                self.set_current_session(metadata);
+                self.push_system("Started a new session.");
+            }
+            Err(error) => self.push_system(&format!("Cannot create session: {error}")),
+        }
+    }
+
+    fn list_sessions(&mut self) {
+        if let Err(error) = self.ensure_store() {
+            self.push_system(&format!("Cannot open session store: {error}"));
+            return;
+        }
+        let result = self
+            .session_store
+            .as_ref()
+            .expect("session store initialized")
+            .list();
+        match result {
+            Ok(list) if list.sessions.is_empty() => self.push_system("No saved sessions."),
+            Ok(list) => {
+                let mut output = String::new();
+                for metadata in list.sessions.iter().take(20) {
+                    let id = metadata.id.get(..8).unwrap_or(&metadata.id);
+                    output.push_str(id);
+                    output.push_str("  ");
+                    output.push_str(&metadata.title);
+                    output.push('\n');
+                }
+                if list.sessions.len() > 20 {
+                    output.push_str("… more sessions not shown\n");
+                }
+                if list.skipped_corrupt > 0 {
+                    output.push_str(&format!(
+                        "{} corrupt session metadata entr{} skipped",
+                        list.skipped_corrupt,
+                        if list.skipped_corrupt == 1 { "y" } else { "ies" }
+                    ));
+                }
+                self.push_system(output.trim_end());
+            }
+            Err(error) => self.push_system(&format!("Cannot list sessions: {error}")),
+        }
+    }
+
+    fn persist_message(&mut self, role: MessageRole, content: &str) -> Result<(), String> {
+        self.ensure_store()?;
+        if self.current_session.is_none() {
+            let workspace = env::current_dir().map_err(|error| error.to_string())?;
+            let metadata = self
+                .session_store
+                .as_ref()
+                .expect("session store initialized")
+                .create(workspace)
+                .map_err(|error| error.to_string())?;
+            self.set_current_session(metadata);
+        }
+
+        let store = self
+            .session_store
+            .as_ref()
+            .expect("session store initialized");
+        let metadata = self
+            .current_session
+            .as_mut()
+            .expect("current session initialized");
+        store
+            .append_message(&metadata.id, role, content)
+            .map_err(|error| error.to_string())?;
+        store.touch(metadata).map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    fn ensure_store(&mut self) -> Result<(), String> {
+        if self.session_store.is_none() {
+            self.session_store = Some(SessionStore::discover().map_err(|error| error.to_string())?);
+        }
+        Ok(())
+    }
+
+    fn set_current_session(&mut self, metadata: SessionMetadata) {
+        let id = metadata.id.get(..8).unwrap_or(&metadata.id);
+        self.status = format!("main · provider not selected · session {id}");
+        self.current_session = Some(metadata);
+    }
+
     fn push_system(&mut self, text: &str) {
         self.messages.push(Message {
-            role: Role::System,
+            role: MessageRole::System,
             text: text.to_owned(),
         });
     }

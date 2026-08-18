@@ -9,15 +9,16 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
+use ratatui::Terminal;
 
-use crate::app::{App, Role};
+use crate::app::App;
+use crate::session::MessageRole;
 
 pub fn run(app: &mut App) -> io::Result<()> {
     install_panic_restore();
@@ -113,16 +114,21 @@ fn render_messages(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let mut lines = Vec::with_capacity(app.messages.len().saturating_mul(3));
     for message in &app.messages {
         let label = match message.role {
-            Role::User => "You",
-            Role::Assistant => "MatrixCode",
-            Role::System => "MatrixCode",
+            MessageRole::User => "You",
+            MessageRole::Assistant | MessageRole::System => "MatrixCode",
         };
-        lines.push(Line::styled(label, Style::default().add_modifier(Modifier::BOLD)));
+        lines.push(Line::styled(
+            label,
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
         lines.extend(message.text.lines().map(Line::from));
         lines.push(Line::default());
     }
 
-    let max_scroll = lines.len().saturating_sub(area.height as usize).min(u16::MAX as usize) as u16;
+    let max_scroll = lines
+        .len()
+        .saturating_sub(area.height as usize)
+        .min(u16::MAX as usize) as u16;
     let offset = max_scroll.saturating_sub(app.scroll.min(max_scroll));
     let paragraph = Paragraph::new(Text::from(lines))
         .wrap(Wrap { trim: false })

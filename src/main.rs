@@ -1,5 +1,6 @@
 mod app;
 mod command;
+mod session;
 mod tui;
 
 use std::env;
