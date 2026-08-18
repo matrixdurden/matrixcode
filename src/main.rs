@@ -1,5 +1,10 @@
 mod app;
 mod command;
+mod fsutil;
+mod history;
+#[cfg(test)]
+mod history_tests;
+mod session;
 mod tui;
 
 use std::env;
