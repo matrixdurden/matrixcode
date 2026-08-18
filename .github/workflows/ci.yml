@@ -24,14 +24,39 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
-      - run: cargo check --all-targets
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --all-targets
+      - run: cargo check --all-targets --locked
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --all-targets --locked
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - run: cargo check --all-targets --locked
 
   release-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release
+      - run: cargo build --release --locked
       - run: ls -lh target/release/matrixcode
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo build --release --locked
+      - run: rustfmt --edition 2024 --check tools/bench_linux.rs
+      - run: rustc --edition 2024 -O -D warnings tools/bench_linux.rs -o target/bench-linux
+      - run: target/bench-linux target/release/matrixcode 10 target/matrixcode-benchmark.json
+      - run: cat target/matrixcode-benchmark.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matrixcode-linux-benchmark
+          path: target/matrixcode-benchmark.json
+          retention-days: 14
