@@ -47,11 +47,13 @@ pub fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::create_dir_all(parent)?;
     let temp = temp_path(path);
     let mut file = OpenOptions::new().write(true).create_new(true).open(&temp)?;
+
     if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
         let _ = fs::remove_file(&temp);
         return Err(error);
     }
     drop(file);
+
     if let Err(error) = fs::rename(&temp, path) {
         let _ = fs::remove_file(&temp);
         return Err(error);
@@ -68,12 +70,14 @@ where
     fs::create_dir_all(parent)?;
     let temp = temp_path(path);
     let backup = backup_path(path);
+
     let mut file = OpenOptions::new().write(true).create_new(true).open(&temp)?;
     if let Err(error) = write(&mut file).and_then(|()| file.sync_all()) {
         let _ = fs::remove_file(&temp);
         return Err(error);
     }
     drop(file);
+
     let had_previous = path.exists();
     if had_previous {
         match fs::remove_file(&backup) {
@@ -89,6 +93,7 @@ where
             return Err(error);
         }
     }
+
     if let Err(error) = fs::rename(&temp, path) {
         if backup.exists() && !path.exists() {
             let _ = fs::rename(&backup, path);
@@ -96,6 +101,7 @@ where
         let _ = fs::remove_file(&temp);
         return Err(error);
     }
+
     if keep_backup {
         if !had_previous {
             let _ = fs::copy(path, &backup);
@@ -109,18 +115,29 @@ where
 
 pub fn backup_path(path: &Path) -> PathBuf {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("matrixcode");
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("matrixcode");
     parent.join(format!(".{name}.bak"))
 }
 
 fn temp_path(path: &Path) -> PathBuf {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("matrixcode");
-    parent.join(format!(".{name}.tmp-{}-{}", process::id(), TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)))
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("matrixcode");
+    parent.join(format!(
+        ".{name}.tmp-{}-{}",
+        process::id(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ))
 }
 
 fn parent(path: &Path) -> io::Result<&Path> {
-    path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))
+    path.parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))
 }
 
 #[cfg(unix)]
@@ -144,9 +161,14 @@ pub fn files_equal(left: &Path, right: &Path, expected_len: u64) -> io::Result<b
         Err(error) => return Err(error),
     };
     let right_meta = fs::metadata(right)?;
-    if !left_meta.is_file() || !right_meta.is_file() || left_meta.len() != expected_len || right_meta.len() != expected_len {
+    if !left_meta.is_file()
+        || !right_meta.is_file()
+        || left_meta.len() != expected_len
+        || right_meta.len() != expected_len
+    {
         return Ok(false);
     }
+
     let mut left = File::open(left)?;
     let mut right = File::open(right)?;
     let mut left_buf = [0_u8; 64 * 1024];
@@ -160,5 +182,60 @@ pub fn files_equal(left: &Path, right: &Path, expected_len: u64) -> io::Result<b
         if left_read == 0 {
             return Ok(true);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "matrixcode-fsutil-test-{}-{}",
+                process::id(),
+                TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&path).expect("create test dir");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn durable_json_keeps_recovery_copy() {
+        let temp = TestDir::new();
+        let path = temp.0.join("state.json");
+        atomic_write_json_durable(&path, &41_u64).expect("write state");
+        assert!(backup_path(&path).exists());
+        fs::write(&path, b"broken").expect("corrupt primary");
+        assert_eq!(read_json_with_backup::<u64>(&path).expect("recover"), 41);
+    }
+
+    #[test]
+    fn atomic_copy_does_not_leave_backup_in_workspace() {
+        let temp = TestDir::new();
+        let source = temp.0.join("source");
+        let destination = temp.0.join("destination");
+        fs::write(&source, b"new").expect("source");
+        fs::write(&destination, b"old").expect("destination");
+        atomic_copy(&source, &destination).expect("atomic copy");
+        assert_eq!(fs::read(&destination).expect("read destination"), b"new");
+        assert!(!backup_path(&destination).exists());
+    }
+
+    #[test]
+    fn backup_names_include_full_file_name() {
+        let temp = TestDir::new();
+        let json = backup_path(&temp.0.join("same.json"));
+        let text = backup_path(&temp.0.join("same.txt"));
+        assert_ne!(json, text);
     }
 }
