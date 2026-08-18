@@ -1,0 +1,21 @@
+[package]
+name = "matrixcode"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Ultra-light terminal coding agent for Codex and Claude"
+license = "MIT"
+repository = "https://github.com/matrixdurden/matrixcode"
+publish = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.bench]
+inherits = "release"
+debug = true
+strip = false
