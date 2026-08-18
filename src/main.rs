@@ -1,5 +1,11 @@
+mod app;
+mod command;
+mod tui;
+
 use std::env;
 use std::process::ExitCode;
+
+use app::App;
 
 const NAME: &str = "MatrixCode";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -20,8 +26,14 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         None => {
-            println!("{NAME}");
-            ExitCode::SUCCESS
+            let mut app = App::default();
+            match tui::run(&mut app) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("matrixcode: {error}");
+                    ExitCode::FAILURE
+                }
+            }
         }
     }
 }
