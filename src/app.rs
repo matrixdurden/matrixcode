@@ -1,6 +1,7 @@
 use std::env;
 
 use crate::command::Command;
+use crate::history::{HistoryError, HistoryStore};
 use crate::session::{MessageRole, SessionMetadata, SessionStore};
 
 const HELP: &str = "/new  /sessions  /account  /provider  /model  /undo  /redo  /clear  /help  /quit";
@@ -18,6 +19,7 @@ pub struct InputBuffer {
 }
 
 impl InputBuffer {
+    #[cfg(test)]
     pub fn as_str(&self) -> &str {
         &self.text
     }
@@ -116,6 +118,7 @@ pub struct App {
     pub should_quit: bool,
     session_store: Option<SessionStore>,
     current_session: Option<SessionMetadata>,
+    history: Option<HistoryStore>,
 }
 
 impl Default for App {
@@ -128,6 +131,7 @@ impl Default for App {
             should_quit: false,
             session_store: None,
             current_session: None,
+            history: None,
         }
     }
 }
@@ -166,9 +170,8 @@ impl App {
             Ok(Command::Help) => self.push_system(HELP),
             Ok(Command::New) => self.new_session(),
             Ok(Command::Sessions) => self.list_sessions(),
-            Ok(Command::Undo) | Ok(Command::Redo) => {
-                self.push_system("Transactional history arrives in Phase 4.")
-            }
+            Ok(Command::Undo) => self.undo(),
+            Ok(Command::Redo) => self.redo(),
             Ok(Command::Account) | Ok(Command::Provider) | Ok(Command::Model) => {
                 self.push_system("Provider and account selection arrives in Phase 6.")
             }
@@ -279,6 +282,84 @@ impl App {
         let id = metadata.id.get(..8).unwrap_or(&metadata.id);
         self.status = format!("main · provider not selected · session {id}");
         self.current_session = Some(metadata);
+        self.history = None;
+    }
+
+    fn undo(&mut self) {
+        if let Err(error) = self.ensure_history() {
+            self.push_system(&error);
+            return;
+        }
+        let result = self.history.as_ref().expect("history initialized").undo();
+        match result {
+            Ok(change_set) => {
+                if let Err(error) = self.sync_history_cursor() {
+                    self.push_system(&format!("Undo succeeded but metadata update failed: {error}"));
+                    return;
+                }
+                self.push_system(&format!("Undid turn {}.", change_set.id));
+            }
+            Err(HistoryError::NothingToUndo) => self.push_system("Nothing to undo."),
+            Err(error) => self.push_system(&format!("Undo blocked: {error}")),
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Err(error) = self.ensure_history() {
+            self.push_system(&error);
+            return;
+        }
+        let result = self.history.as_ref().expect("history initialized").redo();
+        match result {
+            Ok(change_set) => {
+                if let Err(error) = self.sync_history_cursor() {
+                    self.push_system(&format!("Redo succeeded but metadata update failed: {error}"));
+                    return;
+                }
+                self.push_system(&format!("Redid turn {}.", change_set.id));
+            }
+            Err(HistoryError::NothingToRedo) => self.push_system("Nothing to redo."),
+            Err(error) => self.push_system(&format!("Redo blocked: {error}")),
+        }
+    }
+
+    fn ensure_history(&mut self) -> Result<(), String> {
+        if self.history.is_some() {
+            return Ok(());
+        }
+        self.ensure_store()?;
+        let metadata = self
+            .current_session
+            .as_ref()
+            .ok_or_else(|| "No active session.".to_owned())?;
+        let store = self.session_store.as_ref().expect("session store initialized");
+        let root = store
+            .history_root(&metadata.id)
+            .map_err(|error| error.to_string())?;
+        let history = HistoryStore::open(root, metadata.workspace.clone())
+            .map_err(|error| error.to_string())?;
+        self.history = Some(history);
+        Ok(())
+    }
+
+    fn sync_history_cursor(&mut self) -> Result<(), String> {
+        let cursor = self
+            .history
+            .as_ref()
+            .expect("history initialized")
+            .state()
+            .map_err(|error| error.to_string())?
+            .cursor;
+        let metadata = self
+            .current_session
+            .as_mut()
+            .ok_or_else(|| "No active session.".to_owned())?;
+        metadata.history_cursor = cursor;
+        self.session_store
+            .as_ref()
+            .expect("session store initialized")
+            .save_metadata(metadata)
+            .map_err(|error| error.to_string())
     }
 
     fn push_system(&mut self, text: &str) {
