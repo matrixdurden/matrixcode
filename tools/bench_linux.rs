@@ -50,7 +50,10 @@ struct RunMetrics {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args_os().skip(1);
-    let binary = PathBuf::from(args.next().ok_or("usage: bench_linux <binary> [runs] [json]")?);
+    let binary = PathBuf::from(
+        args.next()
+            .ok_or("usage: bench_linux <binary> [runs] [json]")?,
+    );
     let runs = args
         .next()
         .and_then(|value| value.to_str().and_then(|value| value.parse().ok()))
@@ -375,7 +378,10 @@ fn read_until(master: &mut File, marker: &[u8], timeout: Duration) -> io::Result
 
     Err(io::Error::new(
         io::ErrorKind::TimedOut,
-        format!("timed out waiting for {:?}", String::from_utf8_lossy(marker)),
+        format!(
+            "timed out waiting for {:?}",
+            String::from_utf8_lossy(marker)
+        ),
     ))
 }
 
@@ -395,12 +401,18 @@ fn write_retry(master: &mut File, bytes: &[u8], timeout: Duration) -> io::Result
     if offset == bytes.len() {
         Ok(())
     } else {
-        Err(io::Error::new(io::ErrorKind::TimedOut, "PTY write timed out"))
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "PTY write timed out",
+        ))
     }
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    needle.is_empty() || haystack.windows(needle.len()).any(|window| window == needle)
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
 }
 
 fn memory_kb(pid: u32) -> io::Result<(u64, u64)> {
