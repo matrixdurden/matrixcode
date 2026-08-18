@@ -8,6 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use crate::fsutil::{atomic_write_json_durable, read_json_with_backup};
+
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +20,7 @@ pub enum MessageRole {
     System,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SessionRecord {
@@ -37,6 +40,7 @@ pub struct SessionMetadata {
     pub history_cursor: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedSession {
     pub metadata: SessionMetadata,
@@ -137,6 +141,7 @@ impl SessionStore {
         })
     }
 
+    #[allow(dead_code)]
     pub fn load(&self, id: &str) -> io::Result<LoadedSession> {
         validate_session_id(id)?;
         let session_dir = self.root.join(id);
@@ -231,6 +236,7 @@ impl SessionStore {
         self.save_metadata(metadata)
     }
 
+    #[allow(dead_code)]
     pub fn delete(&self, id: &str) -> io::Result<()> {
         validate_session_id(id)?;
         match fs::remove_dir_all(self.root.join(id)) {
@@ -239,97 +245,26 @@ impl SessionStore {
             Err(error) => Err(error),
         }
     }
+
+    pub fn history_root(&self, id: &str) -> io::Result<PathBuf> {
+        validate_session_id(id)?;
+        let session_dir = self.root.join(id);
+        if !session_dir.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "session does not exist",
+            ));
+        }
+        Ok(session_dir.join("history"))
+    }
 }
 
 fn write_metadata(session_dir: &Path, metadata: &SessionMetadata) -> io::Result<()> {
-    let bytes = serde_json::to_vec(metadata).map_err(json_error)?;
-    atomic_write(&session_dir.join("meta.json"), &bytes)
+    atomic_write_json_durable(&session_dir.join("meta.json"), metadata)
 }
 
 fn read_metadata(session_dir: &Path) -> io::Result<SessionMetadata> {
-    let primary = session_dir.join("meta.json");
-    match read_metadata_file(&primary) {
-        Ok(metadata) => Ok(metadata),
-        Err(primary_error) => {
-            let backup = backup_path(&primary);
-            match read_metadata_file(&backup) {
-                Ok(metadata) => Ok(metadata),
-                Err(_) => Err(primary_error),
-            }
-        }
-    }
-}
-
-fn read_metadata_file(path: &Path) -> io::Result<SessionMetadata> {
-    let bytes = fs::read(path)?;
-    serde_json::from_slice(&bytes).map_err(json_error)
-}
-
-fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
-    fs::create_dir_all(parent)?;
-
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid file name"))?;
-    let temp = parent.join(format!(
-        ".{file_name}.tmp-{}-{}",
-        process::id(),
-        SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let backup = backup_path(path);
-
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temp)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-
-    if path.exists() {
-        match fs::remove_file(&backup) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => {
-                let _ = fs::remove_file(&temp);
-                return Err(error);
-            }
-        }
-        if let Err(error) = fs::rename(path, &backup) {
-            let _ = fs::remove_file(&temp);
-            return Err(error);
-        }
-    }
-
-    if let Err(error) = fs::rename(&temp, path) {
-        if backup.exists() && !path.exists() {
-            let _ = fs::rename(&backup, path);
-        }
-        let _ = fs::remove_file(&temp);
-        return Err(error);
-    }
-
-    let _ = fs::remove_file(&backup);
-    sync_parent(parent);
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) {
-    if let Ok(directory) = File::open(parent) {
-        let _ = directory.sync_all();
-    }
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) {}
-
-fn backup_path(path: &Path) -> PathBuf {
-    path.with_extension("bak")
+    read_json_with_backup(&session_dir.join("meta.json"))
 }
 
 fn validate_session_id(id: &str) -> io::Result<()> {
@@ -494,8 +429,8 @@ mod tests {
             .create(PathBuf::from("/workspace"))
             .expect("create session");
         let primary = store.root.join(&metadata.id).join("meta.json");
-        let backup = backup_path(&primary);
-        fs::copy(&primary, &backup).expect("copy backup");
+        let backup = crate::fsutil::backup_path(&primary);
+        assert!(backup.exists());
         fs::write(&primary, b"{").expect("corrupt primary");
 
         let loaded = store.load(&metadata.id).expect("recover metadata");

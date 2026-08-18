@@ -9,13 +9,13 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::Frame;
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
-use ratatui::Frame;
-use ratatui::Terminal;
 
 use crate::app::App;
 use crate::session::MessageRole;
@@ -115,7 +115,8 @@ fn render_messages(frame: &mut Frame<'_>, area: Rect, app: &App) {
     for message in &app.messages {
         let label = match message.role {
             MessageRole::User => "You",
-            MessageRole::Assistant | MessageRole::System => "MatrixCode",
+            MessageRole::Assistant => "MatrixCode",
+            MessageRole::System => "MatrixCode",
         };
         lines.push(Line::styled(
             label,
@@ -146,8 +147,7 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
     frame.render_widget(
-        Paragraph::new(app.status.as_str())
-            .style(Style::default().add_modifier(Modifier::DIM)),
+        Paragraph::new(app.status.as_str()).style(Style::default().add_modifier(Modifier::DIM)),
         area,
     );
 }
